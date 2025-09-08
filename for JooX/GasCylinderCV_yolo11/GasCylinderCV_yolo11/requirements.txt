@@ -1,0 +1,8 @@
+
+# Torch is installed separately so you can choose CPU or CUDA build
+ultralytics
+opencv-python
+numpy
+pyyaml
+matplotlib
+tqdm

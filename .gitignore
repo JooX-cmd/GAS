@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+venv2/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# VSCode
+.vscode/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Model specific
+runs/detect/predict*/
+*.pt
+
+# Operating System
+.DS_Store
+Thumbs.db

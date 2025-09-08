@@ -1,20 +1,30 @@
 import sys
+import argparse
 from pathlib import Path
 from ultralytics import YOLO
 import torch
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Predict on images and save annotations')
+    parser.add_argument('--weights', type=str, help='Path to model weights (defaults to trained best.pt)')
+    parser.add_argument('--dir', type=str, default='test', choices=['test', 'train', 'val'], help='Dataset split to use')
+    parser.add_argument('--limit', type=int, default=10, help='Number of images to process (0 = all)')
+    parser.add_argument('--conf', type=float, default=0.25, help='Confidence threshold')
+    parser.add_argument('--imgsz', type=int, default=640, help='Inference image size')
+    parser.add_argument('--batch', type=int, default=1, help='Batch size for prediction')
+    args = parser.parse_args()
+
     # Configure paths
     project_root = Path(__file__).resolve().parent.parent
-    test_images_dir = project_root / 'data' / 'dataset' / 'test' / 'images'
+    images_dir = project_root / 'data' / 'dataset' / args.dir / 'images'
     default_weights = project_root / 'runs' / 'train' / 'cylinder_detector' / 'weights' / 'best.pt'
     fallback_weights = project_root / 'yolo11n.pt'
 
     # Resolve weights
     weights = None
-    if len(sys.argv) > 1:
-        candidate = Path(sys.argv[1])
+    if args.weights:
+        candidate = Path(args.weights)
         if candidate.exists():
             weights = candidate
     if weights is None and default_weights.exists():
@@ -22,44 +32,51 @@ def main():
     if weights is None and fallback_weights.exists():
         weights = fallback_weights
     if weights is None:
-        print('[test10] Error: No weights found. Provide a path or ensure trained weights exist.')
+        print('[test] Error: No weights found. Provide --weights or ensure trained weights exist.')
         return 1
 
-    # List first 10 images
-    if not test_images_dir.exists():
-        print(f"[test10] Error: test images dir not found: {test_images_dir}")
+    # List images with limit
+    if not images_dir.exists():
+        print(f"[test] Error: images dir not found: {images_dir}")
         return 1
-    image_paths = sorted([p for p in test_images_dir.glob('*.jpg')])[:10]
-    if not image_paths:
-        print(f"[test10] Error: No .jpg images in {test_images_dir}")
+    all_images = sorted([p for p in images_dir.glob('*.jpg')])
+    if not all_images:
+        print(f"[test] Error: No .jpg images in {images_dir}")
         return 1
+    image_paths = all_images if args.limit == 0 else all_images[: args.limit]
 
     device = 0 if torch.cuda.is_available() else 'cpu'
-    print(f"[test10] torch={torch.__version__} cuda={torch.cuda.is_available()} device={'cuda:0' if device == 0 else 'cpu'}")
-    print(f"[test10] weights={weights}")
-    print(f"[test10] testing {len(image_paths)} images from {test_images_dir}")
+    print(f"[test] torch={torch.__version__} cuda={torch.cuda.is_available()} device={'cuda:0' if device == 0 else 'cpu'}")
+    print(f"[test] weights={weights}")
+    print(f"[test] split={args.dir} total={len(image_paths)} (limit={args.limit}) from {images_dir}")
 
     model = YOLO(str(weights))
 
-    # Run predictions and save to runs/detect/test_results
-    results = model.predict(
-        source=[str(p) for p in image_paths],
-        conf=0.25,
+    # Stream predictions to avoid high RAM usage
+    source = str(images_dir) if args.limit == 0 else [str(p) for p in image_paths]
+    results_iter = model.predict(
+        source=source,
+        conf=args.conf,
         device=device,
         verbose=False,
         project=str(project_root / 'runs' / 'detect'),
         name='test_results',
         exist_ok=True,
         save=True,
+        stream=True,
+        imgsz=args.imgsz,
+        batch=args.batch,
+        workers=0,
     )
 
-    # Print per-image summary
-    for p, r in zip(image_paths, results):
+    # Print per-image summary as they stream
+    for r in results_iter:
         num = 0 if r.boxes is None else len(r.boxes)
-        print(f"[test10] {p.name}: detections={num}")
+        # r.path is full path string to the image
+        print(f"[test] {Path(r.path).name}: detections={num}")
 
     out_dir = project_root / 'runs' / 'detect' / 'test_results'
-    print(f"[test10] Annotated images saved to: {out_dir}")
+    print(f"[test] Annotated images saved to: {out_dir}")
     return 0
 
 

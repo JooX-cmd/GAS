@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 import cv2
 import torch
+import numpy as np
 from ultralytics import YOLO
 import os
 
@@ -64,11 +65,11 @@ def _resolve_weights_path(preferred_weights: str) -> Path:
 
 
 class UltraStrictCylinderDetector:
-    def __init__(self, weights, conf_threshold=0.25, k=20, min_ratio=0.5,
-                 min_aspect_ratio=1.2, max_aspect_ratio=4.0,
-                 min_width=40, max_width=300, min_height=80,
-                 min_center_x_ratio=0.1, max_center_x_ratio=0.9,
-                 min_center_y_ratio=0.1, max_center_y_ratio=0.9):
+    def __init__(self, weights, conf_threshold=0.6, k=20, min_ratio=0.7,
+                 min_aspect_ratio=1.8, max_aspect_ratio=3.2,
+                 min_width=80, max_width=220, min_height=160,
+                 min_center_x_ratio=0.2, max_center_x_ratio=0.8,
+                 min_center_y_ratio=0.25, max_center_y_ratio=0.75):
         
         # Auto-detect best device
         self.device = 0 if torch.cuda.is_available() else "cpu"
@@ -101,11 +102,81 @@ class UltraStrictCylinderDetector:
         
         device_name = "CUDA" if self.device == 0 else "CPU"
         print(f"[ultra_strict] Device: {device_name}")
-        print(f"[ultra_strict] Starting with conf={self.conf_threshold}, k={k}, min_ratio={min_ratio}")
-        print(f"[ultra_strict] Ultra-strict mode: Only detects tall, centered objects")
+        print(f"[ultra_strict] 🚫 ANTI-HAND MODE ACTIVATED! 🚫")
+        print(f"[ultra_strict] Enhanced filtering: conf≥{self.conf_threshold}, size≥{min_width}x{min_height}")
+        print(f"[ultra_strict] Will reject hands, arms, and human body parts")
+
+    def is_likely_human_part(self, x1, y1, x2, y2, frame):
+        """Advanced detection for human body parts (hands, arms, etc.)"""
+        w, h = x2 - x1, y2 - y1
+        
+        # Quick size-based filters for typical hand/arm dimensions
+        area = w * h
+        
+        # Typical hand areas in webcam (empirically determined)
+        if area < 15000:  # Very small objects (likely hands/fingers)
+            return True
+            
+        # Aspect ratio analysis for hands vs cylinders
+        aspect_ratio = h / (w + 1e-6)
+        
+        # Hands tend to have specific aspect ratios when extended
+        if 1.0 <= aspect_ratio <= 2.2:  # Hands are less cylindrical than gas cylinders
+            return True
+        
+        # Extract the detected region for color analysis
+        try:
+            roi = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
+            if roi.size == 0 or roi.shape[0] < 10 or roi.shape[1] < 10:
+                return False
+            
+            # Convert to HSV for better skin detection
+            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+            
+            # Comprehensive skin color detection (multiple skin tones)
+            skin_masks = []
+            
+            # Light skin tones
+            lower1 = np.array([0, 20, 70], dtype=np.uint8)
+            upper1 = np.array([20, 150, 255], dtype=np.uint8)
+            skin_masks.append(cv2.inRange(hsv, lower1, upper1))
+            
+            # Medium skin tones
+            lower2 = np.array([0, 25, 80], dtype=np.uint8)
+            upper2 = np.array([25, 170, 230], dtype=np.uint8)
+            skin_masks.append(cv2.inRange(hsv, lower2, upper2))
+            
+            # Darker skin tones
+            lower3 = np.array([0, 30, 60], dtype=np.uint8)
+            upper3 = np.array([25, 150, 200], dtype=np.uint8)
+            skin_masks.append(cv2.inRange(hsv, lower3, upper3))
+            
+            # Additional range for very light skin
+            lower4 = np.array([0, 10, 100], dtype=np.uint8)
+            upper4 = np.array([15, 100, 255], dtype=np.uint8)
+            skin_masks.append(cv2.inRange(hsv, lower4, upper4))
+            
+            # Combine all skin masks
+            combined_mask = np.zeros_like(skin_masks[0])
+            for mask in skin_masks:
+                combined_mask = cv2.bitwise_or(combined_mask, mask)
+            
+            skin_pixels = cv2.countNonZero(combined_mask)
+            total_pixels = roi.shape[0] * roi.shape[1]
+            skin_ratio = skin_pixels / total_pixels
+            
+            # If more than 25% looks like skin, probably a human part
+            if skin_ratio > 0.25:
+                return True
+                
+        except Exception as e:
+            # If color analysis fails, use conservative approach
+            pass
+        
+        return False
 
     def detect(self, frame):
-        """Detect cylinders in frame with ultra-strict validation"""
+        """Detect cylinders in frame with ultra-strict validation and anti-hand filtering"""
         h_frame, w_frame = frame.shape[:2]
         
         # Run YOLO detection
@@ -121,14 +192,22 @@ class UltraStrictCylinderDetector:
                 aspect_ratio = h / (w + 1e-6)  # Prevent division by zero
                 center_x = (x1 + x2) / 2 / w_frame
                 center_y = (y1 + y2) / 2 / h_frame
+                area = w * h
 
-                # Ultra-strict validation checks
+                # Enhanced validation checks
                 size_valid = (self.min_width <= w <= self.max_width and h >= self.min_height)
                 aspect_valid = (self.min_aspect_ratio <= aspect_ratio <= self.max_aspect_ratio)
                 position_valid = (self.min_center_x_ratio <= center_x <= self.max_center_x_ratio and
                                 self.min_center_y_ratio <= center_y <= self.max_center_y_ratio)
                 
-                if size_valid and aspect_valid and position_valid:
+                # NEW: Anti-human detection
+                not_human_part = not self.is_likely_human_part(x1, y1, x2, y2, frame)
+                
+                # Additional area filter (gas cylinders should be substantial)
+                sufficient_area = area >= 12800  # Minimum area for a real gas cylinder
+                
+                # Combine all filters
+                if size_valid and aspect_valid and position_valid and not_human_part and sufficient_area:
                     filtered_boxes.append(box)
 
         # Update results with filtered boxes
@@ -174,11 +253,13 @@ class UltraStrictCylinderDetector:
         print("  - Press 'q' to quit")
         print("  - Press 's' to save current frame")
         print("  - Press 'c' to change confidence threshold")
-        print("Ultra-strict mode: Only tall, centered objects will be detected")
+        print("  - Press 'h' to toggle hand detection info")
+        print("🚫 Anti-Hand Mode: Will reject human body parts")
         print()
         
         total_detections = 0
         frame_count = 0
+        show_debug_info = False
         
         try:
             while True:
@@ -198,25 +279,30 @@ class UltraStrictCylinderDetector:
                         
                         # Draw bounding box
                         color = (0, 255, 0) if stable else (0, 255, 255)  # Green if stable, yellow if not
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)  # Thicker line for better visibility
                         
                         # Draw confidence and stability
-                        label = f"Cylinder: {conf:.2f}"
+                        label = f"GAS CYLINDER: {conf:.2f}"
                         if stable:
                             label += " [STABLE]"
                             total_detections += 1
                         
-                        cv2.putText(frame, label, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                        cv2.putText(frame, label, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
                 
                 # Draw status information
                 status = f"Frame: {frame_count} | Stable: {stable} | Total: {total_detections}"
                 cv2.putText(frame, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 
                 # Draw confidence threshold
-                conf_text = f"Confidence: {self.conf_threshold:.2f}"
+                conf_text = f"Confidence: {self.conf_threshold:.2f} | Anti-Hand: ON"
                 cv2.putText(frame, conf_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 
-                cv2.imshow("Ultra-Strict Gas Cylinder Detector", frame)
+                # Debug info (if enabled)
+                if show_debug_info:
+                    debug_text = f"Min Size: {self.min_width}x{self.min_height} | Aspect: {self.min_aspect_ratio:.1f}-{self.max_aspect_ratio:.1f}"
+                    cv2.putText(frame, debug_text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+                
+                cv2.imshow("Ultra-Strict Gas Cylinder Detector (Anti-Hand)", frame)
                 
                 # Handle keyboard input
                 key = cv2.waitKey(1) & 0xFF
@@ -224,9 +310,12 @@ class UltraStrictCylinderDetector:
                     break
                 elif key == ord('s'):
                     timestamp = int(time.time())
-                    filename = f"ultra_strict_detection_{timestamp}.jpg"
+                    filename = f"gas_cylinder_detection_{timestamp}.jpg"
                     cv2.imwrite(filename, frame)
                     print(f"Frame saved as {filename}")
+                elif key == ord('h'):
+                    show_debug_info = not show_debug_info
+                    print(f"Debug info: {'ON' if show_debug_info else 'OFF'}")
                 elif key == ord('c'):
                     print(f"\nCurrent confidence threshold: {self.conf_threshold}")
                     try:
@@ -249,16 +338,16 @@ class UltraStrictCylinderDetector:
             print(f"[ultra_strict] Session ended. Total stable detections: {total_detections}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Ultra-Strict Gas Cylinder Detector")
+    parser = argparse.ArgumentParser(description="Ultra-Strict Gas Cylinder Detector (Anti-Hand)")
     parser.add_argument("--weights", type=str, default="yolo11n.pt",
                         help="Path to model weights")
     parser.add_argument("--source", type=str, default="0", 
                         help="Camera index (0, 1, 2...) or video file path")
-    parser.add_argument("--conf", type=float, default=0.25, 
-                        help="Confidence threshold (0.0-1.0)")
+    parser.add_argument("--conf", type=float, default=0.6, 
+                        help="Confidence threshold (0.0-1.0) - Higher = more strict")
     parser.add_argument("--k", type=int, default=20, 
                         help="Number of frames for stability validation")
-    parser.add_argument("--min_ratio", type=float, default=0.5, 
+    parser.add_argument("--min_ratio", type=float, default=0.7, 
                         help="Minimum ratio for stable detection")
     parser.add_argument("--directshow", action="store_true", 
                         help="Force DirectShow on Windows webcams")

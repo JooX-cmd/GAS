@@ -1,8 +1,25 @@
+# Core Deep Learning Framework
+torch>=2.0.0
+torchvision>=0.15.0
 
-# Torch is installed separately so you can choose CPU or CUDA build
-ultralytics
-opencv-python
-numpy
-pyyaml
-matplotlib
-tqdm
+# Computer Vision & ML
+ultralytics>=8.0.0
+opencv-python>=4.5.0
+numpy>=1.21.0
+
+# Data Processing
+pyyaml>=6.0
+Pillow>=8.0.0
+
+# Visualization & Progress
+matplotlib>=3.5.0
+tqdm>=4.64.0
+seaborn>=0.11.0
+
+# Optional: For GPU support (uncomment if you have CUDA)
+# To install GPU version, run:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# Development tools (optional)
+# jupyter
+# ipython

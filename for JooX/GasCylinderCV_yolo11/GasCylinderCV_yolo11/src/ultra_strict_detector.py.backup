@@ -1,4 +1,14 @@
-import argparse
+#!/usr/bin/env python3
+"""
+Script to fix the broken ultra_strict_detector.py file
+Run this script from the project root directory
+"""
+
+import os
+from pathlib import Path
+
+# The correct ultra_strict_detector.py content
+CORRECTED_CODE = '''import argparse
 import time
 from pathlib import Path
 import cv2
@@ -28,41 +38,6 @@ class KFramesValidator:
                 return False
         return False
 
-def _resolve_weights_path(preferred_weights: str) -> Path:
-    """Resolve model weights path by checking several common locations.
-
-    Order:
-    1) Exact path as provided
-    2) Relative to current working directory
-    3) Relative to this script's directory
-    4) Project root (one level up from src)
-    5) Common defaults: runs/train/.../best.pt, yolo11n.pt
-    """
-    candidates = []
-
-    # 1-2) As provided, and CWD relative
-    candidates.append(Path(preferred_weights))
-
-    # 3) Relative to this script
-    script_dir = Path(__file__).resolve().parent
-    candidates.append(script_dir / preferred_weights)
-
-    # 4) Project root (one level up from src)
-    project_root = script_dir.parent
-    candidates.append(project_root / preferred_weights)
-
-    # 5) Common defaults
-    candidates.append(project_root / 'runs/train/cylinder_detector/weights/best.pt')
-    candidates.append(project_root / 'yolo11n.pt')
-
-    for path in candidates:
-        if path.exists():
-            return path
-
-    # Nothing found
-    return Path()
-
-
 class UltraStrictCylinderDetector:
     def __init__(self, weights, conf_threshold=0.25, k=20, min_ratio=0.5,
                  min_aspect_ratio=1.2, max_aspect_ratio=4.0,
@@ -73,16 +48,22 @@ class UltraStrictCylinderDetector:
         # Auto-detect best device
         self.device = 0 if torch.cuda.is_available() else "cpu"
         
-        # Resolve weights path robustly
-        weights_path = _resolve_weights_path(weights)
+        # Load model with fallback
+        weights_path = Path(weights)
         if not weights_path.exists():
-            print(f"[ultra_strict] Error: Could not find model weights. Tried variants of: '{weights}'")
-            print("[ultra_strict] Also checked: 'runs/train/cylinder_detector/weights/best.pt' and 'yolo11n.pt' near this script")
-            raise FileNotFoundError("No model weights available")
+            print(f"[ultra_strict] Warning: weights not found: {weights}")
+            print("[ultra_strict] Falling back to 'yolo11n.pt'")
+            weights = "yolo11n.pt"
+            
+            # Check if fallback exists
+            if not Path(weights).exists():
+                print("[ultra_strict] Error: No model weights found!")
+                print("Please ensure either trained weights or yolo11n.pt exists")
+                raise FileNotFoundError("No model weights available")
         
         try:
-            self.model = YOLO(str(weights_path))
-            print(f"[ultra_strict] Model loaded successfully: {weights_path}")
+            self.model = YOLO(weights)
+            print(f"[ultra_strict] Model loaded successfully: {weights}")
         except Exception as e:
             print(f"[ultra_strict] Error loading model: {e}")
             raise
@@ -228,7 +209,7 @@ class UltraStrictCylinderDetector:
                     cv2.imwrite(filename, frame)
                     print(f"Frame saved as {filename}")
                 elif key == ord('c'):
-                    print(f"\nCurrent confidence threshold: {self.conf_threshold}")
+                    print(f"\\nCurrent confidence threshold: {self.conf_threshold}")
                     try:
                         new_conf = float(input("Enter new confidence threshold (0.0-1.0): "))
                         if 0.0 <= new_conf <= 1.0:
@@ -242,7 +223,7 @@ class UltraStrictCylinderDetector:
                         break
                         
         except KeyboardInterrupt:
-            print("\nStopping detection...")
+            print("\\nStopping detection...")
         finally:
             cap.release()
             cv2.destroyAllWindows()
@@ -286,6 +267,62 @@ def main():
     
     # Run detection
     detector.run_webcam(source=source, use_directshow=args.directshow)
+
+if __name__ == "__main__":
+    main()
+'''
+
+def main():
+    print("🔧 Ultra-Strict Detector File Fixer")
+    print("=" * 50)
+    
+    # Check if we're in the right directory
+    if not os.path.exists("src"):
+        print("❌ Error: src/ directory not found")
+        print("Please run this script from the project root directory")
+        print("(GasCylinderCV_yolo11/GasCylinderCV_yolo11/)")
+        return False
+    
+    # Backup the existing file
+    src_file = Path("src/ultra_strict_detector.py")
+    backup_file = Path("src/ultra_strict_detector.py.backup")
+    
+    if src_file.exists():
+        try:
+            import shutil
+            shutil.copy2(src_file, backup_file)
+            print(f"✅ Backed up existing file to {backup_file}")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not create backup: {e}")
+    
+    # Write the corrected file
+    try:
+        with open(src_file, 'w', encoding='utf-8') as f:
+            f.write(CORRECTED_CODE)
+        print(f"✅ Created corrected {src_file}")
+    except Exception as e:
+        print(f"❌ Error writing file: {e}")
+        return False
+    
+    # Test the file syntax
+    try:
+        import subprocess
+        result = subprocess.run(['python', '-m', 'py_compile', str(src_file)], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✅ File syntax is correct!")
+        else:
+            print(f"❌ Syntax error: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"⚠️  Could not test syntax: {e}")
+    
+    print("\n🎉 File fixed successfully!")
+    print("\nNow you can run:")
+    print("  python src/ultra_strict_detector.py --help")
+    print("  python src/ultra_strict_detector.py")
+    
+    return True
 
 if __name__ == "__main__":
     main()

@@ -1,17 +1,17 @@
 task: detect
 mode: train
 model: yolo11n.pt
-data: data\dataset\data.yaml
-epochs: 10
+data: data/dataset/data.yaml
+epochs: 50
 time: null
-patience: 30
-batch: 8
+patience: 50
+batch: 16
 imgsz: 640
 save: true
-save_period: -1
-cache: false
+save_period: 5
+cache: true
 device: cpu
-workers: 8
+workers: 4
 project: runs/train
 name: cylinder_detector
 exist_ok: true
@@ -30,6 +30,7 @@ fraction: 1.0
 profile: false
 freeze: null
 multi_scale: false
+compile: false
 overlap_mask: true
 mask_ratio: 4
 dropout: 0.0
@@ -102,4 +103,4 @@ auto_augment: randaugment
 erasing: 0.4
 cfg: null
 tracker: botsort.yaml
-save_dir: C:\Users\Lenovo\Downloads\for JooX\GasCylinderCV_yolo11\GasCylinderCV_yolo11\runs\train\cylinder_detector
+save_dir: C:\Users\joox2\Downloads\for JooX\for JooX\GasCylinderCV_yolo11\GasCylinderCV_yolo11\runs\train\cylinder_detector

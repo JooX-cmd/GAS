@@ -5,14 +5,15 @@ from ultralytics import YOLO
 import torch
 
 def test_model(weights, image_path=None, webcam=False, conf=0.5):
-    print(f"[env] torch={torch.__version__}  cuda? {torch.cuda.is_available()}  device=cpu")
+    device = 0 if torch.cuda.is_available() else "cpu"
+    print(f"[env] torch={torch.__version__}  cuda? {torch.cuda.is_available()}  device={device}")
     print(f"[load] weights: {weights}")
     
     model = YOLO(weights)
     
     if image_path and Path(image_path).exists():
         # Test on image
-        results = model.predict(source=image_path, conf=conf, device="cpu", verbose=False)
+        results = model.predict(source=image_path, conf=conf, device=device, verbose=False)
         r = results[0]
         
         print(f"[result] detections={len(r.boxes) if r.boxes is not None else 0}")
@@ -40,7 +41,7 @@ def test_model(weights, image_path=None, webcam=False, conf=0.5):
             if not ret:
                 break
                 
-            results = model.predict(source=frame, conf=conf, device="cpu", verbose=False)
+            results = model.predict(source=frame, conf=conf, device=device, verbose=False)
             r = results[0]
             
             # Draw detections

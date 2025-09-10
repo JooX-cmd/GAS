@@ -1,16 +1,10 @@
 # YOLO11 Gas Cylinder Detection Dataset Configuration
-# Place your dataset in the following structure:
-# data/dataset/
-# ├── train/images/  (training images)
-# ├── train/labels/  (YOLO format labels)
-# ├── val/images/    (validation images)
-# ├── val/labels/    (validation labels)
-# └── data.yaml      (this file)
+# This dataset has images in the main dataset directory
+# Images will be automatically split by YOLO for training/validation
 
-path: data/dataset
+path: ./data/dataset
 train: train/images
-val: valid/images
-test: test/images  # optional
+val: test/images
 
 # Class names
 names:

@@ -1,195 +1,189 @@
 #!/usr/bin/env python3
 """
-Gas Cylinder Detection Model Training Script
-============================================
-
-This script trains a YOLO11 model specifically for detecting gas cylinders.
-It automatically detects available GPU and optimizes training parameters accordingly.
-
-Author: Gas Cylinder CV Team
-Version: 2.0
+GPU-Only Gas Cylinder Detection Training - Simplified
+====================================================
+Optimized YOLOv11 training script for gas cylinder detection.
+GPU required - no CPU fallback.
 """
 
 import argparse
 import sys
 import logging
 from pathlib import Path
-from ultralytics import YOLO
 from datetime import datetime
+import os
+import time
+import json
+import torch
+from ultralytics import YOLO
 
-# Try importing torch, fallback if not available
-try:
-    import torch
-    TORCH_AVAILABLE = True
-except ImportError:
-    print("Warning: PyTorch not found. GPU detection disabled.")
-    TORCH_AVAILABLE = False
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
-def check_system_requirements():
-    """Check system requirements and GPU availability."""
-    logger.info("Checking system requirements...")
+def check_gpu():
+    """Check GPU availability - required for training."""
+    if not torch.cuda.is_available():
+        logger.error("❌ CUDA GPU not detected! GPU required for training.")
+        logger.error("Solutions:")
+        logger.error("  • Install CUDA drivers")
+        logger.error("  • Reinstall PyTorch with CUDA support")
+        logger.error("  • Use cloud GPU (Colab, AWS, etc.)")
+        sys.exit(1)
     
-    # Check CUDA availability
-    if TORCH_AVAILABLE and torch.cuda.is_available():
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        logger.info(f"GPU detected: {gpu_name} ({gpu_memory:.1f}GB)")
-        device = 0
-    else:
-        logger.warning("No GPU detected. Training will use CPU (slower)")
-        device = "cpu"
+    gpu_name = torch.cuda.get_device_name(0)
+    gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+    logger.info(f"✅ GPU: {gpu_name} ({gpu_memory:.1f}GB)")
     
-    return device
+    return gpu_memory
 
-def validate_data_config(data_yaml_path):
-    """Validate the dataset configuration file."""
-    data_path = Path(data_yaml_path)
-    if not data_path.exists():
-        logger.error(f"Dataset configuration file not found: {data_yaml_path}")
-        return False
-    
-    # Check if dataset directories exist
-    yaml_dir = data_path.parent
-    train_imgs = yaml_dir / "train" / "images"
-    train_labels = yaml_dir / "train" / "labels"
-    
-    if not train_imgs.exists() or not train_labels.exists():
-        logger.error("Training dataset directories not found")
-        return False
-    
-    # Count images and labels
-    img_count = len(list(train_imgs.glob("*.jpg"))) + len(list(train_imgs.glob("*.png")))
-    label_count = len(list(train_labels.glob("*.txt")))
-    
-    logger.info(f"Found {img_count} images and {label_count} labels")
-    
-    if img_count < 100:
-        logger.warning(f"Only {img_count} images found. Consider adding more data for better performance")
-    
-    return True
+def auto_batch_size(gpu_memory_gb):
+    """Calculate optimal batch size based on GPU memory."""
+    if gpu_memory_gb >= 12:    return 32  # High-end GPUs
+    elif gpu_memory_gb >= 8:   return 24  # Mid-range GPUs  
+    elif gpu_memory_gb >= 6:   return 16  # Entry GPUs
+    else:                      return 8   # Low memory GPUs
 
-def train_model(data_yaml, epochs=50, imgsz=640, batch=16, patience=50):
+def train_model(data_yaml="data/dataset/data.yaml", epochs=100, batch=None, patience=30, resume=True):
     """
-    Train a YOLO11 model for gas cylinder detection.
+    Train YOLO11 model for gas cylinder detection - GPU only.
     
     Args:
-        data_yaml (str): Path to dataset configuration file
-        epochs (int): Number of training epochs
-        imgsz (int): Input image size
-        batch (int): Batch size
-        patience (int): Early stopping patience
-    
-    Returns:
-        Results object from YOLO training
+        data_yaml: Path to dataset configuration
+        epochs: Number of training epochs
+        batch: Batch size (auto-calculated if None)
+        patience: Early stopping patience
+        resume: Resume from checkpoint if available
     """
-    # Validate inputs
-    if not validate_data_config(data_yaml):
-        raise ValueError("Invalid dataset configuration")
     
-    # Check system requirements
-    device = check_system_requirements()
+    # GPU check
+    gpu_memory = check_gpu()
     
-    logger.info("=" * 60)
-    logger.info("STARTING GAS CYLINDER MODEL TRAINING")
-    logger.info("=" * 60)
+    # Auto-calculate batch size if not provided
+    if batch is None:
+        batch = auto_batch_size(gpu_memory)
+        logger.info(f"🧠 Auto batch size: {batch} (GPU: {gpu_memory:.1f}GB)")
+    
+    # Clear GPU memory
+    torch.cuda.empty_cache()
+    
+    logger.info("=" * 50)
+    logger.info("🚀 STARTING TRAINING")
+    logger.info("=" * 50)
     logger.info(f"Dataset: {data_yaml}")
     logger.info(f"Epochs: {epochs}")
-    logger.info(f"Image size: {imgsz}x{imgsz}")
-    logger.info(f"Batch size: {batch}")
-    logger.info(f"Device: {'GPU' if device == 0 else 'CPU'}")
-    logger.info(f"Early stopping patience: {patience}")
+    logger.info(f"Batch: {batch}")
+    logger.info(f"Patience: {patience}")
     
     try:
-        # Load pre-trained model
-        logger.info("Loading YOLO11n base model...")
-        model = YOLO("yolo11n.pt")
+        # Check for checkpoint
+        checkpoint = Path("runs/train/cylinder_detector/weights/last.pt")
+        if resume and checkpoint.exists():
+            logger.info(f"🔄 Resuming from: {checkpoint}")
+            model = YOLO(str(checkpoint))
+        else:
+            logger.info("🎆 Starting fresh with YOLO11n")
+            model = YOLO("yolo11n.pt")
         
         # Start training
-        logger.info("Starting training process...")
         results = model.train(
             data=data_yaml,
             epochs=epochs,
-            imgsz=imgsz,
             batch=batch,
-            device=device,
+            device=0,  # GPU
             project="runs/train",
             name="cylinder_detector",
             exist_ok=True,
             patience=patience,
             save=True,
-            save_period=5,  # Save checkpoint every 5 epochs
-            cache=True,  # Cache images for faster training
+            save_period=10,
+            cache=True,
             workers=4,
-            verbose=True
+            amp=True,  # Mixed precision
+            plots=True,
+            val=True,
+            resume=resume,
+            optimizer='AdamW',
+            lr0=0.001,
+            lrf=0.01
         )
         
-        logger.info("=" * 60)
-        logger.info("TRAINING COMPLETED SUCCESSFULLY!")
-        logger.info("=" * 60)
-        logger.info(f"Best weights saved to: runs/train/cylinder_detector/weights/best.pt")
-        logger.info(f"Last weights saved to: runs/train/cylinder_detector/weights/last.pt")
-        logger.info(f"Training results saved to: runs/train/cylinder_detector/")
+        logger.info("=" * 50)
+        logger.info("🎉 TRAINING COMPLETED!")
+        logger.info("=" * 50)
+        logger.info(f"✅ Best: runs/train/cylinder_detector/weights/best.pt")
+        logger.info(f"✅ Last: runs/train/cylinder_detector/weights/last.pt")
+        
+        # Save summary
+        summary = {
+            "completed": datetime.now().isoformat(),
+            "epochs": epochs,
+            "batch_size": batch,
+            "gpu": torch.cuda.get_device_name(0),
+            "gpu_memory_gb": round(gpu_memory, 1)
+        }
+        
+        summary_path = Path("runs/train/cylinder_detector/training_summary.json")
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(summary_path, 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        logger.info("🎯 Next steps:")
+        logger.info("  python src/test_model.py --webcam")
+        logger.info("  python src/ultra_strict_detector.py --source 0")
         
         return results
         
-    except Exception as e:
-        logger.error(f"Training failed with error: {str(e)}")
-        raise
     except KeyboardInterrupt:
-        logger.warning("Training interrupted by user")
+        logger.warning("⚠️ Training interrupted - checkpoint saved")
+        return None
+        
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower():
+            logger.error(f"❌ GPU out of memory! Try smaller --batch {batch//2}")
+            torch.cuda.empty_cache()
+        raise
+        
+    except Exception as e:
+        logger.error(f"❌ Training failed: {e}")
+        logger.info("💡 Troubleshooting:")
+        logger.info("  • Check dataset folders exist")
+        logger.info("  • Verify image/label files match") 
+        logger.info("  • Try smaller batch size")
+        logger.info("  • Check free disk space")
         raise
 
 def main():
-    """Main function for command-line interface."""
-    parser = argparse.ArgumentParser(
-        description="Train YOLO11 model for gas cylinder detection",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python train_model.py --data data/dataset/data.yaml --epochs 50
-  python train_model.py --epochs 100 --batch 32 --imgsz 800
-        """
-    )
-    
-    parser.add_argument("--data", type=str, default="data/dataset/data.yaml",
-                       help="Path to dataset YAML configuration file")
-    parser.add_argument("--epochs", type=int, default=50,
-                       help="Number of training epochs (default: 50)")
-    parser.add_argument("--imgsz", type=int, default=640,
-                       help="Input image size (default: 640)")
-    parser.add_argument("--batch", type=int, default=16,
-                       help="Batch size (default: 16, adjust based on GPU memory)")
-    parser.add_argument("--patience", type=int, default=50,
-                       help="Early stopping patience (default: 50)")
-    parser.add_argument("--verbose", action="store_true",
-                       help="Enable verbose logging")
+    parser = argparse.ArgumentParser(description="GPU-only YOLO11 training for gas cylinders")
+    parser.add_argument("--data", default="data/dataset/data.yaml", help="Dataset YAML path")
+    parser.add_argument("--epochs", type=int, default=100, help="Training epochs")
+    parser.add_argument("--batch", type=int, help="Batch size (auto if not set)")
+    parser.add_argument("--patience", type=int, default=30, help="Early stopping patience")
+    parser.add_argument("--no-resume", action="store_true", help="Start fresh (ignore checkpoints)")
     
     args = parser.parse_args()
     
-    # Set logging level based on verbose flag
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-    
     try:
-        # Start training
+        print("\n" + "="*50)
+        print("  GAS CYLINDER DETECTION TRAINING")
+        print("        GPU-Optimized YOLO11")
+        print("="*50 + "\n")
+        
         train_model(
             data_yaml=args.data,
             epochs=args.epochs,
-            imgsz=args.imgsz,
             batch=args.batch,
-            patience=args.patience
+            patience=args.patience,
+            resume=not args.no_resume
         )
-        logger.info("Training completed successfully! Check the results in runs/train/cylinder_detector/")
+        
+        print("\n🎉 Training completed successfully!")
         
     except KeyboardInterrupt:
-        logger.warning("Training was interrupted by user")
+        print("\n⚠️ Training interrupted by user")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Training failed: {str(e)}")
+        print(f"\n❌ Training failed: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

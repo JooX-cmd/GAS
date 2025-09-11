@@ -9,11 +9,17 @@ GasCylinderCV_yolo11/
 ├── data/dataset/          # Training and test datasets
 ├── runs/                  # Training and detection results
 ├── src/                   # Source code
-│   ├── train_model.py     # Model training script
-│   ├── test_model.py      # Model testing script
-│   ├── complete_system.py # Complete detection system
+│   ├── train_model.py          # Model training script
+│   ├── test_single_image.py    # Single image testing script
 │   └── ultra_strict_detector.py # Strict detection variant
-└── PROJECT_GUIDE.md       # Detailed project documentation
+├── BACKUP_SUMMARY.md      # Project backup summary
+├── INSTALL.md             # Installation instructions
+├── PROJECT_GUIDE.md       # Detailed project documentation
+├── README.md              # Project README
+├── requirements.txt       # Python dependencies
+├── run_ultra_strict.bat   # Batch script for ultra strict detection
+├── SETUP_AFTER_RESET.bat  # Setup script after reset
+└── yolo11n.pt            # Pre-trained YOLOv11 model
 ```
 
 ## Key Commands
@@ -24,29 +30,42 @@ cd "for JooX/GasCylinderCV_yolo11/GasCylinderCV_yolo11"
 python src/train_model.py
 ```
 
-### Testing
+### Single Image Testing
 ```bash
 cd "for JooX/GasCylinderCV_yolo11/GasCylinderCV_yolo11"
-python src/test_model.py
+python src/test_single_image.py
 ```
 
-### Complete System
+### Ultra Strict Detection
 ```bash
 cd "for JooX/GasCylinderCV_yolo11/GasCylinderCV_yolo11"
-python src/complete_system.py
+python src/ultra_strict_detector.py
+```
+
+### Using Batch Script
+```bash
+cd "for JooX/GasCylinderCV_yolo11/GasCylinderCV_yolo11"
+./run_ultra_strict.bat
 ```
 
 ## Dependencies
-- ultralytics (YOLOv11)
-- opencv-python
-- torch
-- torchvision
-- pillow
-- numpy
+See `requirements.txt` for complete list. Key dependencies include:
+- torch>=2.0.0 (with CUDA support)
+- torchvision>=0.15.0
+- ultralytics>=8.0.0 (YOLOv11)
+- opencv-python>=4.7.0
+- numpy>=1.24.0
+- Pillow>=9.0.0
 
 ## Installation
 ```bash
-pip install ultralytics opencv-python torch torchvision pillow numpy
+cd "for JooX/GasCylinderCV_yolo11/GasCylinderCV_yolo11"
+pip install -r requirements.txt
+```
+
+### PyTorch with CUDA (if needed)
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
 ## Dataset Configuration

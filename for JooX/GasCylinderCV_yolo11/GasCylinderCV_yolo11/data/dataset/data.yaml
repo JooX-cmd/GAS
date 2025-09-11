@@ -4,7 +4,8 @@
 
 path: ./data/dataset
 train: train/images
-val: test/images
+val: valid/images    
+test: /test/images
 
 # Class names
 names:
